@@ -1,0 +1,9 @@
+# file: ~/.gitignore_global
+.idea
+*checkpoint.ipynb
+*checkpoint.py
+*.pyc
+
+**/*.pkl
+**/*.pkl
+**/*.pkl

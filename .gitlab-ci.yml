@@ -1,0 +1,478 @@
+stages:
+    - sonar
+    - docker_build
+    - dev_pipeline
+    - uat_pipeline
+    - prod_pipeline
+
+variables:
+    GIT_STRATEGY: clone
+    DME_ECR_REPO: ap-dme-sagemaker:latest
+    DOCKER_REGISTRY_NONPROD: 809800841141.dkr.ecr.us-east-1.amazonaws.com
+    DOCKER_REGISTRY_PROD: 750606694809.dkr.ecr.us-east-1.amazonaws.com
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+
+sonar_scanner_job:
+    stage: sonar
+    image:
+        name: sonarsource/sonar-scanner-cli:latest
+        entrypoint: [ "" ]
+    cache:
+        key: "${CI_JOB_NAME}"
+        paths:
+          - .sonar/cache
+    script:
+        - eval "$(/home/gitlab-runner/anaconda3/bin/conda shell.bash hook)"
+        - conda activate python39
+        - coverage run -m pytest
+        - coverage xml
+        - sonar-scanner
+    environment: dev
+    when: manual
+    tags:
+        - advancement-nonprod
+
+nonprod_build:
+    stage: docker_build
+    script:
+    - echo "Build Sagemaker image"
+    - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 173754725891.dkr.ecr.us-east-1.amazonaws.com
+    - docker pull 173754725891.dkr.ecr.us-east-1.amazonaws.com/sagemaker-spark-processing:3.2-cpu-py39-v1.0
+    - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${DOCKER_REGISTRY_NONPROD}
+    - docker build -f sagemaker_nonprod.dockerfile -t ${DME_ECR_REPO} .
+    - docker tag ${DME_ECR_REPO} ${DOCKER_REGISTRY_NONPROD}/${DME_ECR_REPO}
+    - docker push ${DOCKER_REGISTRY_NONPROD}/${DME_ECR_REPO}
+    when: manual
+    tags:
+        - advancement-nonprod
+
+prod_build:
+    stage: docker_build
+    script:
+    - echo "Build Sagemaker image"
+    - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 173754725891.dkr.ecr.us-east-1.amazonaws.com
+    - docker pull 173754725891.dkr.ecr.us-east-1.amazonaws.com/sagemaker-spark-processing:3.2-cpu-py39-v1.0
+    - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${DOCKER_REGISTRY_PROD}
+    - docker build -f sagemaker_prod.dockerfile -t ${DME_ECR_REPO} .
+    - docker tag ${DME_ECR_REPO} ${DOCKER_REGISTRY_PROD}/${DME_ECR_REPO}
+    - docker push ${DOCKER_REGISTRY_PROD}/${DME_ECR_REPO}
+    when: manual
+    tags:
+        - advancement-prod
+
+dme_core_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Build Sagemaker DME Core dev pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python sagemaker_pipeline.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: dme-core
+    when: manual
+    tags:
+        - advancement-nonprod
+
+erm_model_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Build Sagemaker ERM model dev pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python erm_model_pipeline.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: erm-model
+    when: manual
+    tags:
+        - advancement-nonprod
+
+erm_train_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Build Sagemaker ERM model train dev pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python erm_train_pipeline.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: erm-model
+    when: manual
+    tags:
+        - advancement-nonprod
+
+corn_material_tester_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Deploy Sagemaker corn_material_tester dev pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd corn_matarial_tester_pipeline/corn_matarial_tester_pipeline_entry
+    - PYTHONPATH=../../ python cmt_pipeline_entry.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: cmt
+    when: manual
+    tags:
+        - advancement-nonprod
+
+performance_train_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Deploy Sagemaker performance train DEV pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_train_pipeline.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-nonprod
+
+performance_infer_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Deploy Sagemaker performance inference DEV pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_infer_pipeline.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-nonprod
+
+placement_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Deploy Sagemaker placement dev pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd placement_pipeline/placement_pipeline_entry
+    - PYTHONPATH=../../ python placement_pipeline_entry.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: placement
+    when: manual
+    tags:
+        - advancement-nonprod
+
+dme_core_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Deploy Sagemaker DME Core UAT pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python sagemaker_pipeline.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: dme-core
+    when: manual
+    tags:
+        - advancement-nonprod
+
+erm_model_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Build Sagemaker ERM model uat pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python erm_model_pipeline.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: erm-model
+    when: manual
+    tags:
+        - advancement-nonprod
+
+erm_train_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Build Sagemaker ERM model train uat pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python erm_train_pipeline.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: erm-model
+    when: manual
+    tags:
+        - advancement-nonprod
+
+corn_material_tester_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Deploy Sagemaker corn_material_tester UAT pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd corn_matarial_tester_pipeline/corn_matarial_tester_pipeline_entry
+    - PYTHONPATH=../../ python cmt_pipeline_entry.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: cmt
+    when: manual
+    tags:
+        - advancement-nonprod
+
+performance_train_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Deploy Sagemaker performance train UAT pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_train_pipeline.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-nonprod
+
+performance_infer_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Deploy Sagemaker performance infer UAT pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_infer_pipeline.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-nonprod
+
+portfolio_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Deploy Sagemaker portfolio UAT pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd portfolio_pipeline/portfolio_pipeline_entry
+    - PYTHONPATH=../../ python portfolio_pipeline.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: portfolio
+    when: manual
+    tags:
+        - advancement-nonprod
+
+placement_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Deploy Sagemaker placement UAT pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd placement_pipeline/placement_pipeline_entry
+    - PYTHONPATH=../../ python placement_pipeline_entry.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: placement
+    when: manual
+    tags:
+        - advancement-nonprod
+
+dme_core_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Deploy Sagemaker DME Core PROD pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python sagemaker_pipeline.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: dme-core
+    when: manual
+    tags:
+        - advancement-prod
+
+erm_model_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Build Sagemaker ERM model prod pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python erm_model_pipeline.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: erm-model
+    when: manual
+    tags:
+        - advancement-prod
+
+erm_train_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Build Sagemaker ERM model train prod pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd dme_core_pipeline/core_whole_pipeline
+    - PYTHONPATH=../../ python erm_train_pipeline.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: erm-model
+    when: manual
+    tags:
+        - advancement-prod
+
+corn_material_tester_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Deploy Sagemaker corn_material_tester PROD pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd corn_matarial_tester_pipeline/corn_matarial_tester_pipeline_entry
+    - PYTHONPATH=../../ python cmt_pipeline_entry.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: cmt
+    when: manual
+    tags:
+        - advancement-prod
+
+performance_train_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Deploy Sagemaker performance train PROD pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_train_pipeline.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-prod
+
+performance_infer_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Deploy Sagemaker performance inference PROD pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_infer_pipeline.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-prod
+
+portfolio_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Deploy Sagemaker portfolio PROD pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd portfolio_pipeline/portfolio_pipeline_entry
+    - PYTHONPATH=../../ python portfolio_pipeline.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: portfolio
+    when: manual
+    tags:
+        - advancement-prod
+
+placement_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Deploy Sagemaker placement PROD pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd placement_pipeline/placement_pipeline_entry
+    - PYTHONPATH=../../ python placement_pipeline_entry.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: placement
+    when: manual
+    tags:
+        - advancement-prod
+
+performance_ingestion_dev:
+    stage: dev_pipeline
+    script:
+    - echo "Deploy Sagemaker performance ingestion DEV pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_ingestion_pipeline_entry.py
+    environment: dev
+    variables:
+        DME_ENV: dev
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-nonprod
+
+performance_ingestion_uat:
+    stage: uat_pipeline
+    script:
+    - echo "Deploy Sagemaker performance ingestion UAT pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_ingestion_pipeline_entry.py
+    environment: uat
+    variables:
+        DME_ENV: uat
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-nonprod
+
+performance_ingestion_prod:
+    stage: prod_pipeline
+    script:
+    - echo "Deploy Sagemaker performance ingestion PROD pipeline"
+    - source ~/sagemaker/bin/activate
+    - python setup.py bdist_egg
+    - cd performance_pipeline/performance_pipeline_entry
+    - PYTHONPATH=../../ python performance_ingestion_pipeline_entry.py
+    environment: prod
+    variables:
+        DME_ENV: prod
+        DME_PROJECT: performance
+    when: manual
+    tags:
+        - advancement-prod
